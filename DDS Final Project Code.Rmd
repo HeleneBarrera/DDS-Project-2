@@ -1,0 +1,124 @@
+---
+title: "DDS Final Project"
+author: "Helene Barrera"
+date: "12/5/2020"
+output: html_document
+---
+
+library(tidyverse)
+library(ggplot2)
+library(caret)
+library(randomForest)
+library(varImp)
+library(dplyr)
+library(olsrr)
+library(questionr)
+library(ggcorrplot)
+library(jsonlite)
+library(class)
+library(caret)
+library(e1071)
+
+
+data = read.csv("D:/MS in Data Science/Datasets/CaseStudy2.csv", header = T)
+data = as.data.frame(data)
+data
+
+#Categorize any characters as factors, check for NAs
+data <- data %>% mutate_if(is.character,as.factor)
+data <- data %>% mutate_if(is.integer, as.numeric)
+#data$Attrition <- as.character(data$Attrition)
+str(data)
+freq.na(data)
+class(data)
+sum(is.na(data))
+
+
+
+#Variables of interest: MOnthlyIncome v Job Level, MonthlyIncome v JobRole, Age v DistanceFromHome, Daily Rate v DistanceFromHome, Department v DistanceFromHome, Education v DistanceFromHome, Age v Education Field, HourlyRate v JobRole, PercentSalaryHike v MonthlyIncome, TotalWorkingYears v YearsAtCompany, 
+
+#Monthly Income is correlated to many other variables. 
+
+#Remove variables that are all the same: Over18, StandardHours, and EmployeeCount
+data2 = select(data, -Over18, -StandardHours, -EmployeeCount)
+
+
+#Look at numeric variable correlations
+numericdata <- dplyr::select_if(data2, is.numeric)
+str(numericdata)
+correlations <- cor(numericdata, use = "complete.obs")
+correlations <- round(correlations, 2)
+ggcorrplot(correlations, type = "upper", lab = F)
+
+#datalm = lm(Attrition ~ ., data = data2)
+
+
+#datamodel= lm(Attrition ~ Age + Attrition +BusinessTravel +DailyRate+ Department+ DistanceFromHome +Education +EducationField+ EmployeeCount+	EmployeeNumber +EnvironmentSatisfaction +Gender+ HourlyRate+ JobInvolvement +JobLevel +JobRole +JobSatisfaction +MaritalStatus+ MonthlyIncome + MonthlyRate +NumCompaniesWorked+ Over18 +OverTime+ PercentSalaryHike +PerformanceRating +RelationshipSatisfaction+ StandardHours +StockOptionLevel +TotalWorkingYears +TrainingTimesLastYear+ WorkLifeBalance +YearsAtCompany+ YearsInCurrentRole +YearsSinceLastPromotion +YearsWithCurrManager, data = data)
+
+
+#sapply(data, function(x) sum(is.na(x)))
+#ols_step_forward_p(data, penter=.05, details=T)
+
+
+#Split into training and test sets
+set.seed(123)
+splitPerc = .7
+trainInd = sample(1:dim(data2)[1], round(splitPerc*dim(data2)[1]))
+train = data2[trainInd,]
+test = data2[-trainInd,]
+
+
+#Naive Bayes model 1
+x <- naiveBayes(Attrition ~ ., data = train, laplace = 1)
+x
+predictions <- predict(x, test[,names(test) != "Attrition"])
+cfm <- confusionMatrix(predictions, test$Attrition)
+cfm
+
+
+
+##Naive Bayes Model 2 (Removing certain covariates)
+data3 = select(data2, -JobLevel, -YearsWithCurrManager, -YearsSinceLastPromotion)
+set.seed(123)
+splitPerc = .7
+trainInd2 = sample(1:dim(data3)[1], round(splitPerc*dim(data3)[1]))
+train2 = data3[trainInd,]
+test2 = data3[-trainInd,]
+
+x2 <- naiveBayes(Attrition ~ ., data = train2, laplace = 1)
+x2
+predictions2 <- predict(x2, test2[,names(test2) != "Attrition"])
+cfm2 <- confusionMatrix(predictions2, test2$Attrition)
+cfm2
+
+
+#LM 1, Forward, for Monthly Income 
+#Adj_Rsq: 0.9472    AIC: 14598.3432    RMSE: 1056.1120    Variables: 4
+datalm = lm(MonthlyIncome ~ ., data = data2)
+model1 = ols_step_forward_p(datalm, penter=.05, details=T)
+model1
+
+#LM 2, Backwards, for Monthly Income 
+##Adj_Rsq: 0.948    AIC: ~14588    RMSE: 1045.208    Variables: 19
+datalm = lm(MonthlyIncome ~ ., data = data2)
+model2 = ols_step_backward_p(datalm, penter=.05, details=T)
+plot(model2)
+
+#LM 3, Stepwise, for Monthly Income
+##Adj_Rsq: 0.948    AIC: ~14598    RMSE: 1052.279    Variables: 7
+datalm = lm(MonthlyIncome ~ ., data = data2)
+model3 = ols_step_both_p(datalm, penter=.05, details=T)
+plot(model3)
+
+#LM 4, Custom model for Monthly Income, based loosely on backward step
+#Remove because of model: StockOptionLevel, EducationField, HourlyRate, Age, EnvironmentSatisfaction, OverTime, YearsInCurrentRole, YearsAtCompany, JobInvolvement, NumCompaniesWorked, MaritalStatus, RelationshipSatisfaction, TrainingTimesLastYear, Attrition, Education
+#Additionally Remove: EmployeeNumber
+#Keep: WorkLifeBalance, JobSatisfaction
+##Adj_Rsq: 0.942    AIC: ?   RMSE: 1070.577    Variables: 15
+datalm = lm(MonthlyIncome ~ BusinessTravel + DailyRate + Department + DistanceFromHome + Gender + JobLevel + JobRole + JobSatisfaction + MonthlyRate + PercentSalaryHike + PerformanceRating + TotalWorkingYears + WorkLifeBalance + YearsSinceLastPromotion + YearsWithCurrManager, data = data2)
+model4 = ols_step_backward_p(datalm, penter=.01, details=T)
+
+predictions <- datalm %>% predict(test)
+RMSE(predictions, test$MonthlyIncome)
+R2(predictions, test$MonthlyIncome)
+AIC(predictions, test$MonthlyIncome)
